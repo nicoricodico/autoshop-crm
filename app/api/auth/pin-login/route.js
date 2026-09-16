@@ -42,8 +42,7 @@ export async function POST(request) {
 
   const { session, error: sessionError } = await mintSessionForEmail(fullProfile.email);
   if (sessionError || !session) {
-    // TEMP DIAGNOSTIC: surfacing the real Supabase error. Remove once fixed.
-    return NextResponse.json({ error: `Could not start a session: ${sessionError || "unknown error"}` }, { status: 500 });
+    return NextResponse.json({ error: "Could not start a session. Try again." }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });
