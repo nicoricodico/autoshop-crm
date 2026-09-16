@@ -27,7 +27,9 @@ export async function POST(request) {
 
   const { session, error: sessionError } = await mintSessionForEmail(fullProfile.email);
   if (sessionError || !session) {
-    return NextResponse.json({ error: "Could not start a session. Try again." }, { status: 500 });
+    // TEMP DIAGNOSTIC: surfacing the real Supabase error so we can see
+    // exactly why session minting fails in production. Remove once fixed.
+    return NextResponse.json({ error: `Could not start a session: ${sessionError || "unknown error"}` }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });
