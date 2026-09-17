@@ -262,24 +262,59 @@ export function searchRows(rows, query) {
 export function LineItemsEditor(props) {
   const { items, onChange, library, taxRateDefault } = props;
 
+  // Every keystroke in a line item field used to call onChange() straight
+  // away, which saves to Supabase and then refetches the whole shop's data
+  // immediately. On a slow connection (or just normal typing speed), a
+  // refetch from keystroke #1 can land *after* keystroke #3, overwriting
+  // what's been typed since and scrambling the text. To fix that, typing
+  // updates local state instantly (so the field never stutters) and is
+  // debounced before it's actually sent up to onChange/Supabase, so a burst
+  // of keystrokes becomes one save instead of one per character. Adding,
+  // removing, or duplicating a row is still applied immediately — those
+  // aren't per-keystroke, so there's no race to debounce.
+  const [localItems, setLocalItems] = React.useState(items);
+  const pendingRef = React.useRef(false);
+  const debounceRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!pendingRef.current) setLocalItems(items);
+  }, [items]);
+
+  React.useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
+
+  function commitImmediately(next) {
+    if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
+    pendingRef.current = false;
+    setLocalItems(next);
+    onChange(next);
+  }
+
   function update(id, patch) {
-    onChange(items.map(li => li.id === id ? { ...li, ...patch } : li));
+    const next = localItems.map(li => li.id === id ? { ...li, ...patch } : li);
+    setLocalItems(next);
+    pendingRef.current = true;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      pendingRef.current = false;
+      debounceRef.current = null;
+      onChange(next);
+    }, 500);
   }
   function remove(id) {
-    onChange(items.filter(li => li.id !== id));
+    commitImmediately(localItems.filter(li => li.id !== id));
   }
   function duplicate(id) {
-    const src = items.find(li => li.id === id);
+    const src = localItems.find(li => li.id === id);
     if (!src) return;
-    onChange([...items, { ...src, id: uid("li") }]);
+    commitImmediately([...localItems, { ...src, id: uid("li") }]);
   }
   function addBlank() {
-    onChange([...items, { id: uid("li"), name: "", description: "", category: "Custom", qty: 1, unitPrice: 0, laborHours: 0, laborRate: 0, discount: 0, taxRate: taxRateDefault != null ? taxRateDefault : 13 }]);
+    commitImmediately([...localItems, { id: uid("li"), name: "", description: "", category: "Custom", qty: 1, unitPrice: 0, laborHours: 0, laborRate: 0, discount: 0, taxRate: taxRateDefault != null ? taxRateDefault : 13 }]);
   }
   function addFromLibrary(tplId) {
     const tpl = library.find(l => l.id === tplId);
     if (!tpl) return;
-    onChange([...items, { id: uid("li"), name: tpl.name, description: tpl.description, category: tpl.category, qty: 1, unitPrice: tpl.unitPrice, laborHours: tpl.laborHours, laborRate: tpl.laborRate, discount: 0, taxRate: tpl.taxRate != null ? tpl.taxRate : 13 }]);
+    commitImmediately([...localItems, { id: uid("li"), name: tpl.name, description: tpl.description, category: tpl.category, qty: 1, unitPrice: tpl.unitPrice, laborHours: tpl.laborHours, laborRate: tpl.laborRate, discount: 0, taxRate: tpl.taxRate != null ? tpl.taxRate : 13 }]);
   }
 
   return React.createElement("div", { className: "vstack", style: { gap: 10 } },
@@ -298,10 +333,10 @@ export function LineItemsEditor(props) {
           React.createElement("th", { style: { width: 68 } })
         )),
         React.createElement("tbody", null,
-          items.length === 0 && React.createElement("tr", null, React.createElement("td", { colSpan: 10 },
+          localItems.length === 0 && React.createElement("tr", null, React.createElement("td", { colSpan: 10 },
             React.createElement("div", { className: "faint", style: { padding: "10px 2px", fontSize: 12.5 } }, "No line items yet. Add from the library or create a custom item.")
           )),
-          items.map(li => React.createElement("tr", { key: li.id },
+          localItems.map(li => React.createElement("tr", { key: li.id },
             React.createElement("td", null,
               React.createElement("input", { className: "input", value: li.name, placeholder: "Item name", onChange: e => update(li.id, { name: e.target.value }) })
             ),
@@ -338,7 +373,7 @@ export function LineItemsEditor(props) {
         React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: addBlank },
           React.createElement(Icon, { name: "plus", size: 14 }), "Custom item")
       ),
-      React.createElement("span", { className: "faint", style: { fontSize: 12 } }, items.length + " item" + (items.length === 1 ? "" : "s"))
+      React.createElement("span", { className: "faint", style: { fontSize: 12 } }, localItems.length + " item" + (localItems.length === 1 ? "" : "s"))
     )
   );
 }
