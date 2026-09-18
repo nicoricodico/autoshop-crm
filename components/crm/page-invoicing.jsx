@@ -165,6 +165,19 @@ export function InvoiceDrawer(props) {
 
   function discardAndClose() { onClose(); }
 
+  async function handleDelete() {
+    const ok = await ui.confirm({
+      title: "Delete invoice?",
+      message: "This permanently deletes " + inv.invoiceNumber + ", its line items, and its payment records. This can't be undone.",
+      confirmLabel: "Delete",
+      danger: true
+    });
+    if (!ok) return;
+    actions.deleteInvoice(inv.id);
+    ui.toast(inv.invoiceNumber + " deleted.");
+    onClose();
+  }
+
   function saveChanges() {
     actions.updateInvoice(inv.id, draft);
     ui.toast("Invoice updated.");
@@ -184,7 +197,10 @@ export function InvoiceDrawer(props) {
     title: inv.invoiceNumber, subtitle: customer ? customer.name : "", fullscreen: true, onClose: discardAndClose,
     headerExtra: React.createElement("div", { style: { marginTop: 10 } }, React.createElement(StatusPill, { status: effStatus, list: INVOICE_STATUSES })),
     footer: React.createElement(React.Fragment, null,
-      React.createElement("span", { className: "faint foot-left", style: { fontSize: 12.5 } }, dirty ? "Unsaved changes" : "No changes to save"),
+      React.createElement("div", { className: "foot-left" },
+        React.createElement("button", { className: "btn btn-danger btn-sm", onClick: handleDelete }, React.createElement(Icon, { name: "trash", size: 14 }), "Delete Invoice"),
+        React.createElement("span", { className: "faint", style: { fontSize: 12.5 } }, dirty ? "Unsaved changes" : "No changes to save")
+      ),
       React.createElement("button", { className: "btn btn-secondary", onClick: discardAndClose }, "Cancel"),
       React.createElement("button", { className: "btn btn-primary", onClick: saveChanges, disabled: !dirty }, "Save Changes")
     )
