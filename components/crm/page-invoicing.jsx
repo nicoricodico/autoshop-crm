@@ -130,13 +130,47 @@ export function InvoiceDrawer(props) {
   const [payAmount, setPayAmount] = React.useState("");
   const [payMethod, setPayMethod] = React.useState(db.settings.paymentMethods[0] || "Cash");
 
-  if (!inv) return null;
+  // Editing an invoice used to write every single field change to Supabase
+  // the instant it happened, with no way to back out once you'd made an
+  // edit. This holds the in-progress edit locally instead: nothing is sent
+  // to the server until "Save Changes" is clicked, and closing the drawer
+  // (the X, Escape, or clicking outside) just discards the draft, leaving
+  // the saved invoice untouched. Recording a payment is its own separate,
+  // immediate action below (money actually changing hands isn't a "draft").
+  const [draft, setDraft] = React.useState(null);
+  const [dirty, setDirty] = React.useState(false);
+
+  React.useEffect(() => {
+    if (inv) {
+      setDraft({
+        status: inv.status, date: inv.date, dueDate: inv.dueDate,
+        discountType: inv.discountType, discountValue: inv.discountValue, taxRate: inv.taxRate,
+        lineItems: inv.lineItems, notes: inv.notes,
+      });
+      setDirty(false);
+    }
+    // Re-seed only when switching to a different invoice, not on every
+    // background refetch of this same one -- that would overwrite whatever
+    // is currently being edited.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invoiceId]);
+
+  if (!inv || !draft) return null;
   const customer = findById(db.customers, inv.customerId);
   const vehicle = findById(db.vehicles, inv.vehicleId);
-  const totals = computeTotals(inv.lineItems, inv.discountValue, inv.discountType, inv.taxRate, inv.payments);
-  const effStatus = effectiveInvoiceStatus(inv);
+  const totals = computeTotals(draft.lineItems, draft.discountValue, draft.discountType, draft.taxRate, inv.payments);
+  const effStatus = effectiveInvoiceStatus({ ...inv, ...draft });
 
-  function patch(p) { actions.updateInvoice(inv.id, p); }
+  function patch(p) { setDraft(d => ({ ...d, ...p })); setDirty(true); }
+
+  function discardAndClose() { onClose(); }
+
+  function saveChanges() {
+    actions.updateInvoice(inv.id, draft);
+    ui.toast("Invoice updated.");
+    setDirty(false);
+    onClose();
+  }
 
   function submitPayment() {
     const amt = Number(payAmount);
@@ -147,8 +181,13 @@ export function InvoiceDrawer(props) {
   }
 
   return React.createElement(Drawer, {
-    title: inv.invoiceNumber, subtitle: customer ? customer.name : "", wide: true, onClose,
-    headerExtra: React.createElement("div", { style: { marginTop: 10 } }, React.createElement(StatusPill, { status: effStatus, list: INVOICE_STATUSES }))
+    title: inv.invoiceNumber, subtitle: customer ? customer.name : "", fullscreen: true, onClose: discardAndClose,
+    headerExtra: React.createElement("div", { style: { marginTop: 10 } }, React.createElement(StatusPill, { status: effStatus, list: INVOICE_STATUSES })),
+    footer: React.createElement(React.Fragment, null,
+      React.createElement("span", { className: "faint foot-left", style: { fontSize: 12.5 } }, dirty ? "Unsaved changes" : "No changes to save"),
+      React.createElement("button", { className: "btn btn-secondary", onClick: discardAndClose }, "Cancel"),
+      React.createElement("button", { className: "btn btn-primary", onClick: saveChanges, disabled: !dirty }, "Save Changes")
+    )
   },
     React.createElement("fieldset", { className: "section" },
       React.createElement("legend", null, "Linked to"),
@@ -161,23 +200,23 @@ export function InvoiceDrawer(props) {
       React.createElement("legend", null, "Details"),
       React.createElement("div", { className: "field-row" },
         React.createElement("div", { className: "field" }, React.createElement("label", null, "Status"),
-          React.createElement("select", { className: "input", value: inv.status, onChange: e => patch({ status: e.target.value }) },
+          React.createElement("select", { className: "input", value: draft.status, onChange: e => patch({ status: e.target.value }) },
             INVOICE_STATUSES.map(s => React.createElement("option", { key: s.value, value: s.value }, s.label)))),
-        React.createElement("div", { className: "field" }, React.createElement("label", null, "Date"), React.createElement("input", { type: "date", className: "input", value: new Date(inv.date).toISOString().slice(0, 10), onChange: e => patch({ date: new Date(e.target.value) }) })),
-        React.createElement("div", { className: "field" }, React.createElement("label", null, "Due date"), React.createElement("input", { type: "date", className: "input", value: new Date(inv.dueDate).toISOString().slice(0, 10), onChange: e => patch({ dueDate: new Date(e.target.value) }) }))
+        React.createElement("div", { className: "field" }, React.createElement("label", null, "Date"), React.createElement("input", { type: "date", className: "input", value: new Date(draft.date).toISOString().slice(0, 10), onChange: e => patch({ date: new Date(e.target.value) }) })),
+        React.createElement("div", { className: "field" }, React.createElement("label", null, "Due date"), React.createElement("input", { type: "date", className: "input", value: new Date(draft.dueDate).toISOString().slice(0, 10), onChange: e => patch({ dueDate: new Date(e.target.value) }) }))
       ),
       React.createElement("div", { className: "field-row" },
         React.createElement("div", { className: "field" }, React.createElement("label", null, "Discount type"),
-          React.createElement("select", { className: "input", value: inv.discountType, onChange: e => patch({ discountType: e.target.value }) },
-            React.createElement("option", { value: "percent" }, "Percent (%)"), React.createElement("option", { value: "amount" }, "Fixed ($)"))),
-        React.createElement("div", { className: "field" }, React.createElement("label", null, "Discount value"), React.createElement("input", { type: "number", className: "input", value: inv.discountValue, onChange: e => patch({ discountValue: Number(e.target.value) }) })),
-        React.createElement("div", { className: "field" }, React.createElement("label", null, "Tax rate (%)"), React.createElement("input", { type: "number", className: "input", value: inv.taxRate, onChange: e => patch({ taxRate: Number(e.target.value) }) }))
+          React.createElement("select", { className: "input", value: draft.discountType, onChange: e => patch({ discountType: e.target.value }) },
+            React.createElement("option", { value: "percent" }, "Percent (%)"), React.createElement("option", { value: "flat" }, "Fixed ($)"))),
+        React.createElement("div", { className: "field" }, React.createElement("label", null, "Discount value"), React.createElement("input", { type: "number", className: "input", value: draft.discountValue, onChange: e => patch({ discountValue: Number(e.target.value) }) })),
+        React.createElement("div", { className: "field" }, React.createElement("label", null, "Tax rate (%)"), React.createElement("input", { type: "number", className: "input", value: draft.taxRate, onChange: e => patch({ taxRate: Number(e.target.value) }) }))
       )
     ),
 
     React.createElement("fieldset", { className: "section" },
       React.createElement("legend", null, "Line items"),
-      React.createElement(LineItemsEditor, { items: inv.lineItems, onChange: items => patch({ lineItems: items }), library: db.lineItemLibrary, taxRateDefault: inv.taxRate }),
+      React.createElement(LineItemsEditor, { items: draft.lineItems, onChange: items => patch({ lineItems: items }), library: db.lineItemLibrary, taxRateDefault: draft.taxRate, saveDelayMs: 0 }),
       React.createElement(TotalsBox, { totals })
     ),
 
@@ -197,7 +236,7 @@ export function InvoiceDrawer(props) {
       )
     ),
 
-    React.createElement("div", { className: "field" }, React.createElement("label", null, "Notes"), React.createElement("textarea", { className: "input", rows: 2, value: inv.notes, onChange: e => patch({ notes: e.target.value }) }))
+    React.createElement("div", { className: "field" }, React.createElement("label", null, "Notes"), React.createElement("textarea", { className: "input", rows: 2, value: draft.notes, onChange: e => patch({ notes: e.target.value }) }))
   );
 }
 

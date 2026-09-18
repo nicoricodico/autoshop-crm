@@ -126,14 +126,14 @@ export function Modal(props) {
 }
 
 export function Drawer(props) {
-  const { title, subtitle, onClose, children, wide, headerExtra, tabs, activeTab, onTab } = props;
+  const { title, subtitle, onClose, children, wide, fullscreen, headerExtra, tabs, activeTab, onTab, footer } = props;
   React.useEffect(() => {
     function onKey(e) { if (e.key === "Escape") onClose(); }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
   return React.createElement("div", { className: "drawer-overlay", onMouseDown: e => { if (e.target === e.currentTarget) onClose(); } },
-    React.createElement("div", { className: "drawer" + (wide ? " drawer-wide" : "") },
+    React.createElement("div", { className: "drawer" + (wide ? " drawer-wide" : "") + (fullscreen ? " drawer-fullscreen" : "") },
       React.createElement("div", { className: "drawer-head" },
         React.createElement("div", { className: "drawer-head-top" },
           React.createElement("div", { className: "vstack" },
@@ -149,7 +149,8 @@ export function Drawer(props) {
           key: t.key, className: "drawer-tab" + (activeTab === t.key ? " active" : ""), onClick: () => onTab(t.key)
         }, t.label))
       ),
-      React.createElement("div", { className: "drawer-body" }, children)
+      React.createElement("div", { className: "drawer-body" }, children),
+      footer && React.createElement("div", { className: "drawer-foot" }, footer)
     )
   );
 }
@@ -260,7 +261,8 @@ export function searchRows(rows, query) {
 /* ---------------- Line items editor (shared: job form + invoices) ---------------- */
 
 export function LineItemsEditor(props) {
-  const { items, onChange, library, taxRateDefault } = props;
+  const { items, onChange, library, taxRateDefault, saveDelayMs } = props;
+  const delay = saveDelayMs != null ? saveDelayMs : 500;
 
   // Every keystroke in a line item field used to call onChange() straight
   // away, which saves to Supabase and then refetches the whole shop's data
@@ -298,7 +300,7 @@ export function LineItemsEditor(props) {
       pendingRef.current = false;
       debounceRef.current = null;
       onChange(next);
-    }, 500);
+    }, delay);
   }
   function remove(id) {
     commitImmediately(localItems.filter(li => li.id !== id));
